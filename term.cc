@@ -1,10 +1,12 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <fcntl.h>
 #include <pty.h>
 #include <unistd.h>
 #include <cerrno>
 #include <sys/wait.h>
+#include <sys/select.h>
 
 #define PCHECK(x) do { if (!(x)) { \
   fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, strerror(errno)); \
@@ -31,6 +33,40 @@ static void HandleSIGCHLD(int) {
   exit(WIFEXITED(status) ? WEXITSTATUS(status) : 128);
 }
 
+class Shell {
+ public:
+   Shell(int tty) : tty_(tty) {
+     int tty_flags = fcntl(tty_, F_GETFL);
+     PCHECK(tty_flags >= 0);
+     PCHECK(fcntl(tty_, F_SETFL, tty_flags | O_NONBLOCK) >= 0);
+   }
+
+   void Read() {
+     int count = read(tty_, &buf_, sizeof(buf_));
+     if (count < 0) {
+       switch (errno) {
+         case EAGAIN: case EINTR:
+           break;
+         default:
+           fprintf(stderr, "reading from master: %s\n", strerror(errno));
+           break;
+       }
+       return;
+     }
+     fprintf(stderr, "read from master\n");
+     for (int i = 0; i < count; ++i) {
+       fprintf(stderr, "%d %c\n", buf_[i], buf_[i]);
+     }
+   }
+
+ private:
+  int tty_;
+  char buf_[1024];
+};
+static void ReadFromShell(int fd) {
+  static char buf[1024];
+}
+
 int main(int argc, char** argv) {
   int master, slave;
   PCHECK(!openpty(&master, &slave, nullptr, nullptr, nullptr));
@@ -42,6 +78,16 @@ int main(int argc, char** argv) {
   }
   PCHECK(shell_pid > 0);
   signal(SIGCHLD, HandleSIGCHLD);
-  sleep(5);
-  printf("hello, world\n");
+  close(slave);
+  Shell shell(master);
+  while (1) {
+    fd_set read;
+    FD_ZERO(&read);
+    FD_SET(master, &read);
+    timeval timeout = {1, 0};
+    PCHECK(select(master + 1, &read, nullptr, nullptr, &timeout) >= 0); 
+    if (FD_ISSET(master, &read)) {
+      shell.Read();
+    }
+  }
 }
