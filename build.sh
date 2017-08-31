@@ -1,3 +1,3 @@
 #!/bin/bash
 set -e -x
-clang -o oterm term.cc
+clang++ --std=c++14 -o oterm -lutil term.cc
