@@ -6,9 +6,10 @@
 #include <unistd.h>
 #include <cerrno>
 #include <sys/wait.h>
-#include <sys/select.h>
+#include <sys/poll.h>
 #include <array>
 #include <deque>
+#include <X11/Xlib.h>
 
 #define PCHECK(x) do { if (!(x)) { \
   fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, strerror(errno)); \
@@ -160,8 +161,12 @@ class Shell {
   History<256> write_history_;
 };
 
-static void ReadFromShell(int fd) {
-  static char buf[1024];
+void CreateXWindow(Display* display) {
+  int screen = DefaultScreen(display);
+  Window window = XCreateSimpleWindow(display, RootWindow(display, screen),
+      0, 0, 100, 100, 0, 0, WhitePixel(display, screen));
+  XSelectInput(display, window, KeyPressMask | KeyReleaseMask);
+  XMapWindow(display, window);
 }
 
 int main(int argc, char** argv) {
@@ -176,18 +181,28 @@ int main(int argc, char** argv) {
   PCHECK(shell_pid > 0);
   signal(SIGCHLD, HandleSIGCHLD);
   close(slave);
+  Display* display = XOpenDisplay(nullptr);
+  CHECK(display);
+  CreateXWindow(display);
   Shell shell(master);
   shell.Write("hello world\n", strlen("hello world\n"));
+
+  pollfd poll_fds[] = {
+    {master, POLLIN, 0},
+    {XConnectionNumber(display), POLLIN, 0},
+  };
+  pollfd& poll_master = poll_fds[0];
+
   while (1) {
-    fd_set read;
-    fd_set write;
-    FD_ZERO(&read);
-    FD_ZERO(&write);
-    FD_SET(master, &read);
-    if (shell.NeedsWrite()) FD_SET(master, &write);
-    timeval timeout = {1, 0};
-    PCHECK(select(master + 1, &read, &write, nullptr, &timeout) >= 0); 
-    if (FD_ISSET(master, &write)) shell.Write();
-    if (FD_ISSET(master, &read)) shell.Read();
+    poll_master.events = POLLIN | (shell.NeedsWrite() ? POLLOUT : 0);
+    PCHECK(poll(poll_fds, sizeof(poll_fds)/sizeof(poll_fds[0]), 1000) >= 0);
+    if (poll_master.revents & POLLIN) shell.Read();
+    if (poll_master.revents & POLLOUT) shell.Write();
+    while (XPending(display)) {
+      XEvent event;
+      XNextEvent(display, &event);
+      if (XFilterEvent(&event, None)) continue;
+      fprintf(stderr, "X event %d %d\n", event.type, event.xkey.keycode);
+    }
   }
 }
