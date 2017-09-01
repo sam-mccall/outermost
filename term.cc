@@ -10,7 +10,10 @@
 #include <array>
 #include <deque>
 #include <X11/Xlib.h>
-#include <experimental/optional>
+#include <vector>
+
+#include "base.h"
+#include "escape_parser.h"
 
 #define PCHECK(x) do { if (!(x)) { \
   fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, strerror(errno)); \
@@ -48,7 +51,7 @@ class History {
     memset(data_, 0, N);
   }
 
-  void Write(const char* src, int count) {
+  void Write(const u8* src, int count) {
     while (count >= 2*N) {
       src += N;
       count -= N;
@@ -64,7 +67,7 @@ class History {
   }
 
  private:
-  char data_[N];
+  u8 data_[N];
   int pos_ = 0;
 };
 
@@ -73,7 +76,7 @@ class WriteQueue {
  public:
   WriteQueue() : blocks_(1) {}
 
-  void Push(const char* data, int n) {
+  void Push(const u8* data, int n) {
     while (n > 0) {
       int count = std::min(n, N - limit_);
       memcpy(&blocks_.back()[limit_], data, count);
@@ -95,13 +98,13 @@ class WriteQueue {
   }
 
   bool HasBlock() { return blocks_.size() > 1 || start_ != limit_; }
-  int GetBlock(char** data) {
+  int GetBlock(u8** data) {
     *data = &blocks_.front()[start_];
     return blocks_.size() == 1 ? limit_ - start_ : N - start_;
   }
 
  private:
-  std::deque<std::array<char, N>> blocks_;
+  std::deque<std::array<u8, N>> blocks_;
   int start_ = 0; // in first block
   int limit_ = 0; // in last block
 };
@@ -114,7 +117,7 @@ struct Keypress {
 
 class Shell {
  public:
-   Shell(int tty) : tty_(tty) {
+   Shell(int tty) : tty_(tty), parser_(EscapeParser::DebugActions()) {
      int tty_flags = fcntl(tty_, F_GETFL);
      PCHECK(tty_flags >= 0);
      PCHECK(fcntl(tty_, F_SETFL, tty_flags | O_NONBLOCK) >= 0);
@@ -134,7 +137,9 @@ class Shell {
      }
      read_history_.Write(&read_buf_[0], count);
      for (int i = 0; i < count; ++i) {
-       char c = read_buf_[i];
+       u8 c = read_buf_[i];
+       // XXX: unicode decode instead
+       if (parser_.Consume(c)) continue;
        if (isprint(c)) {
          fputc(c, stderr);
        } else {
@@ -146,7 +151,7 @@ class Shell {
    bool NeedsWrite() { return write_queue_.HasBlock(); }
    void Write() {
      CHECK(NeedsWrite());
-     char* buf;
+     u8* buf;
      int count = write_queue_.GetBlock(&buf);
      count = write(tty_, buf, count);
      if (count < 0) {
@@ -163,19 +168,20 @@ class Shell {
      write_history_.Write(buf, count);
    }
 
-   void Write(const char* data, int len) { write_queue_.Push(data, len); }
+   void Write(const u8* data, int len) { write_queue_.Push(data, len); }
 
    void Key(const Keypress& key) {
      switch (key.sym) {
      default:
-       Write(key.text, strlen(key.text));
+       Write(reinterpret_cast<const u8*>(key.text), strlen(key.text));
      }
    }
 
  private:
+  EscapeParser parser_;
   int tty_;
   WriteQueue<1024> write_queue_;
-  std::array<char, 1024> read_buf_;
+  std::array<u8, 1024> read_buf_;
   History<256> read_history_;
   History<256> write_history_;
 };
