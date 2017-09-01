@@ -10,6 +10,7 @@
 #include <array>
 #include <deque>
 #include <X11/Xlib.h>
+#include <experimental/optional>
 
 #define PCHECK(x) do { if (!(x)) { \
   fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, strerror(errno)); \
@@ -105,6 +106,12 @@ class WriteQueue {
   int limit_ = 0; // in last block
 };
 
+struct Keypress {
+  // TODO: modifiers
+  KeySym sym;
+  const char* text;
+};
+
 class Shell {
  public:
    Shell(int tty) : tty_(tty) {
@@ -127,7 +134,12 @@ class Shell {
      }
      read_history_.Write(&read_buf_[0], count);
      for (int i = 0; i < count; ++i) {
-       fprintf(stderr, "%d %c\n", read_buf_[i], read_buf_[i]);
+       char c = read_buf_[i];
+       if (isprint(c)) {
+         fputc(c, stderr);
+       } else {
+         fprintf(stderr, "[%02x]", c);
+       }
      }
    }
 
@@ -153,6 +165,13 @@ class Shell {
 
    void Write(const char* data, int len) { write_queue_.Push(data, len); }
 
+   void Key(const Keypress& key) {
+     switch (key.sym) {
+     default:
+       Write(key.text, strlen(key.text));
+     }
+   }
+
  private:
   int tty_;
   WriteQueue<1024> write_queue_;
@@ -161,13 +180,49 @@ class Shell {
   History<256> write_history_;
 };
 
-void CreateXWindow(Display* display) {
-  int screen = DefaultScreen(display);
-  Window window = XCreateSimpleWindow(display, RootWindow(display, screen),
-      0, 0, 100, 100, 0, 0, WhitePixel(display, screen));
-  XSelectInput(display, window, KeyPressMask | KeyReleaseMask);
-  XMapWindow(display, window);
-}
+class TermWindow {
+ public:
+  TermWindow(Display* display) : display_(display) {
+    screen_ = DefaultScreen(display_);
+    window_ = XCreateSimpleWindow(display_, RootWindow(display_, screen_),
+        0, 0, 100, 100, 0, 0, WhitePixel(display_, screen_));
+    XSelectInput(display_, window_, KeyPressMask);
+    XMapWindow(display_, window_);
+    input_method_ = XOpenIM(display_, nullptr, nullptr, nullptr);
+    CHECK(input_method_);
+    input_context_ = XCreateIC(input_method_,
+        XNInputStyle, XIMPreeditNothing | XIMStatusNothing,
+        nullptr);
+    CHECK(input_context_);
+  }
+
+  std::experimental::optional<Keypress> DecodeKeypress(XEvent* event) {
+    if (event->type != KeyPress) return std::experimental::nullopt;
+    static char buf[16];
+    Status status;
+    KeySym sym;
+    int len = Xutf8LookupString(
+        input_context_, &event->xkey, buf, sizeof(buf) - 1, &sym, &status);
+    switch (status) {
+      case XLookupKeySym:
+        return Keypress{sym, ""};
+      case XLookupChars:
+        sym = 0;
+        /* fallthrough */
+      case XLookupBoth:
+        buf[len] = 0;
+        return Keypress{sym, buf};
+    }
+    return std::experimental::nullopt;
+  }
+
+ private:
+  Display* display_;
+  int screen_;
+  Window window_;
+  XIM input_method_;
+  XIC input_context_;
+};
 
 int main(int argc, char** argv) {
   int master, slave;
@@ -183,9 +238,8 @@ int main(int argc, char** argv) {
   close(slave);
   Display* display = XOpenDisplay(nullptr);
   CHECK(display);
-  CreateXWindow(display);
+  TermWindow window(display);
   Shell shell(master);
-  shell.Write("hello world\n", strlen("hello world\n"));
 
   pollfd poll_fds[] = {
     {master, POLLIN, 0},
@@ -201,8 +255,7 @@ int main(int argc, char** argv) {
     while (XPending(display)) {
       XEvent event;
       XNextEvent(display, &event);
-      if (XFilterEvent(&event, None)) continue;
-      fprintf(stderr, "X event %d %d\n", event.type, event.xkey.keycode);
+      if (auto keypress = window.DecodeKeypress(&event)) shell.Key(*keypress);
     }
   }
 }
