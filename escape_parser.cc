@@ -3,7 +3,7 @@
 void EscapeParser::Handle(u32 rune) {
   u8 c = (rune >= 0xa0) ? rune & 0x7f : rune;
   // Some characters are handled the same way in all modes.
-  switch (c) {
+  switch (__builtin_expect(c, -1)) { // None of these are very likely...
   case 0x1B:
     return Transition(ESCAPE);
   case 0x90:
@@ -29,7 +29,7 @@ void EscapeParser::Handle(u32 rune) {
   }
   // C0 control characters (not handled above) have uniform rules per state.
   if (c < 0x20) {
-    switch (state_) {
+    switch (__builtin_expect(state_, GROUND)) {
     case GROUND: case ESCAPE: case ESCAPE_INTERMEDIATE:
     case CSI_ENTRY: case CSI_INTERMEDIATE: case CSI_PARAM: case CSI_IGNORE:
       return actions_->Control(c);
@@ -42,7 +42,7 @@ void EscapeParser::Handle(u32 rune) {
   }
   switch (state_) {
   case ESCAPE:
-    switch (c) {
+    switch (__builtin_expect(c, 0x5b)) {
     case 0x50:
       return Transition(DCS_ENTRY);
     case 0x5B:
@@ -54,7 +54,7 @@ void EscapeParser::Handle(u32 rune) {
     }
   /* fallthrough */
   case ESCAPE_INTERMEDIATE:
-    if (c < 0x30) return Transition(ESCAPE_INTERMEDIATE, [&]{
+    if (UNLIKELY(c < 0x30)) return Transition(ESCAPE_INTERMEDIATE, [&]{
       command_.push_back(c);
     });
     return Transition(GROUND, [&]{
@@ -62,38 +62,36 @@ void EscapeParser::Handle(u32 rune) {
       actions_->Escape(command_);
     });
   case CSI_ENTRY:
-    if (c > 0x3a && c < 0x40) return Transition(CSI_PARAM, [&]{
+    if (UNLIKELY(c > 0x3a && c < 0x40)) return Transition(CSI_PARAM, [&]{
       command_.push_back(c);
     });
     /* fallthrough */
   case CSI_PARAM:
-    if (ParamParse(c)) return Transition(CSI_PARAM);
+    if (LIKELY(ParamParse(c))) return Transition(CSI_PARAM);
     /* fallthrough */
   case CSI_INTERMEDIATE:
-    if (c >= 0x40) return Transition(GROUND, [&]{
-      command_.push_back(c);
+    command_.push_back(c);
+    if (LIKELY(c >= 0x40)) return Transition(GROUND, [&]{
       actions_->CSI(command_, args_);
     });
-    if (c < 0x30) return Transition(CSI_INTERMEDIATE, [&]{
-      command_.push_back(c);
-    });
+    if (LIKELY(c < 0x30)) return Transition(CSI_INTERMEDIATE);
     return Transition(CSI_IGNORE);
   case CSI_IGNORE:
     if (c >= 0x40) return Transition(GROUND);
     return;
   case DCS_ENTRY:
-    if (c > 0x3a && c < 0x40) return Transition(CSI_PARAM, [&]{
+    if (UNLIKELY(c > 0x3a && c < 0x40)) return Transition(CSI_PARAM, [&]{
       command_.push_back(c);
     });
     /* fallthrough */
   case DCS_PARAM:
-    if (ParamParse(c)) return Transition(DCS_PARAM);
+    if (LIKELY(ParamParse(c))) return Transition(DCS_PARAM);
     /* fallthrough */
   case DCS_INTERMEDIATE:
-    if (c >= 0x40) return Transition(DCS_PASSTHROUGH, [&]{
+    if (LIKELY(c >= 0x40)) return Transition(DCS_PASSTHROUGH, [&]{
       payload_.push_back(c);
     });
-    if (c < 0x30) return Transition(DCS_INTERMEDIATE, [&]{
+    if (LIKELY(c < 0x30)) return Transition(DCS_INTERMEDIATE, [&]{
       command_.push_back(c);
     });
     return Transition(DCS_IGNORE);

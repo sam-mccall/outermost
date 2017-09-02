@@ -25,8 +25,8 @@ class EscapeParser {
 
   // Feed the parser a unicode codepoint. Returns false if it should be printed.
   inline bool Consume(u32 rune) {
-    if (state_ == GROUND) {
-      if (rune >= 0x20 && rune < 0x80) return false;
+    if (LIKELY(state_ == GROUND)) {
+      if (LIKELY(rune >= 0x20 && rune < 0x80)) return false;
       if (rune >= 0xa0) return false;
     }
     Handle(rune);
@@ -54,7 +54,8 @@ class EscapeParser {
   // Transition to another state.
   // Runs the exit, transition, and enter actions appropriately.
   template<typename Action = Ignore>
-  void Transition(State state, const Action& transition_action = Action()) {
+  void Transition(State state, const Action& transition_action = Action())
+  __attribute__((always_inline)) {
     Exit(state_);
     transition_action();
     Enter(state);
