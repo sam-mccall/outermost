@@ -15,15 +15,6 @@
 #include "base.h"
 #include "escape_parser.h"
 
-#define PCHECK(x) do { if (!(x)) { \
-  fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, strerror(errno)); \
-  exit(1); \
-} } while(0)
-#define CHECK(x) do { if (!(x)) { \
-  fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #x); \
-  exit(1); \
-} } while(0)
-
 static void ExecShell(int slave) {
   setsid();
   PCHECK(ioctl(slave, TIOCSCTTY, nullptr) >= 0);
@@ -56,14 +47,11 @@ class History {
       src += N;
       count -= N;
     }
-    if (pos_ + count >= N) {
-      memcpy(&data_[pos_], src, N - pos_);
-      count -= N - pos_;
-      src += N - pos_;
-      pos_ = 0;
+    CHECK(count >= 0);
+    for (; count; --count) {
+      data_[pos_++] = *src++;
+      if (pos_ == N) pos_ = 0;
     }
-    memcpy(data_, src, count);
-    pos_ += count;
   }
 
  private:
