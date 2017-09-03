@@ -142,35 +142,3 @@ void EscapeParser::Exit(State state) {
     break;
   }
 }
-
-EscapeParser::Actions* EscapeParser::DebugActions() {
-  static class DebugActionsImpl : public EscapeParser::Actions {
-   public:
-    void Control(u8 control) override {
-      fprintf(stderr, "Control(%02x)", control);
-    }
-    void Escape(const std::string& command) override {
-      fprintf(stderr, "Esc(%s)", command.c_str());
-    }
-    void CSI(const std::string& command, const std::vector<int>& args) override {
-      fprintf(stderr, "CSI(%s, %s)", command.c_str(), Join(args).c_str());
-    }
-    void DSC(const std::string& command, const std::vector<int>& args, const std::string& payload) override {
-      fprintf(stderr, "DSC(%s, %s, %s)", command.c_str(), Join(args).c_str(), payload.c_str());
-    }
-    void OSC(const std::string& command) override {
-      fprintf(stderr, "OSC(%s)", command.c_str());
-    }
-   private:
-    static std::string Join(const std::vector<int>& args) {
-      std::string result;
-      for (int i = 0; i < args.size(); ++i) {
-        result.push_back(i ? ',' : '[');
-        result.append(std::to_string(args[i]));
-      }
-      result.push_back(']');
-      return result;
-    }
-  } actions;
-  return &actions;
-}

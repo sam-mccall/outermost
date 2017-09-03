@@ -35,6 +35,104 @@ static void HandleSIGCHLD(int) {
   exit(WIFEXITED(status) ? WEXITSTATUS(status) : 128);
 }
 
+struct Cell {
+  u32 rune;
+};
+class Grid {
+ public:
+  Grid(int w, int h) {
+    Resize(w, h);
+    for (auto& row : cells_) row.resize(w);
+  }
+
+  void Resize(int w, int h) {
+    CHECK(w > 0 && h > 0);
+    if (int dh = h - h_) {
+      if (dh > 0) {
+        // Insert rows at the start: insert them at the end and then swap.
+        cells_.resize(h);
+        for (int i = h_ - 1; i >= 0; --i) {
+          swap(cells_[i], cells_[i + dh]);
+        }
+      }
+      if (h < h_ ) {
+        // Delete rows from start: swap first and then delete from end.
+        for (int i = 0; i < h; ++i) {
+          swap(cells_[i], cells_[i - dh]);
+        }
+        cells_.resize(h);
+      }
+      y_ += dh;
+      h_ = h;
+    }
+    // TODO: rewrapping
+    for (auto& row : cells_) if (row.size() > w) row.resize(w);
+    if (x_ > w) x_ = w;
+    w_ = w;
+  }
+
+  void ShiftUp() {
+    // Maybe we should have a different memory representation to make this fast.
+    cells_[0].clear();
+    for (int i = 1; i < h_; ++i) {
+      swap(cells_[i - 1], cells_[i]);
+    }
+  }
+
+  Cell& cell(int x, int y) {
+    return cells_[y][x];
+  }
+
+  void Dump() {
+    for (const auto& row : cells_) {
+      for (const auto& cell : row) {
+        fputc(isprint(cell.rune) ? cell.rune : ' ', stderr);
+      }
+      fputc('\n', stderr);
+    }
+  }
+
+  void Put(u8 c) {
+    fprintf(stderr, "Put(%02x)\n", c);
+    // TODO: wide characters
+    if (x_ == w_) {
+      // TODO record soft-wrap
+      CarriageReturn();
+      LineFeed();
+    }
+    auto& row = cells_[y_];
+    if (x_ == row.size()) row.emplace_back();
+    row[x_++].rune = c;
+  }
+
+  void CarriageReturn() {
+    x_ = 0;
+  }
+
+  void LineFeed() {
+    if (y_ + 1 == h_) ShiftUp(); else ++y_;
+    FixWidth();
+  }
+
+  int x() const { return x_; }
+  int y() const { return y_; }
+  void Move(int x, int y) {
+    y_ = y;
+    x_ = x;
+    FixWidth();
+  }
+
+ private:
+  void FixWidth() {
+    auto& row = cells_[y_];
+    if (row.size() <= x_) row.resize(std::min(x_ + 1, w_));
+  }
+
+  std::vector<std::vector<Cell>> cells_;
+  int w_ = 0, h_ = 0;
+  int x_ = 0, y_ = -1; // x_ may equal w_;
+};
+
 template <int N>
 class History {
  public:
@@ -51,6 +149,26 @@ class History {
     for (; count; --count) {
       data_[pos_++] = *src++;
       if (pos_ == N) pos_ = 0;
+    }
+  }
+
+  void Dump() {
+    constexpr static int kBlockSize = 32;
+    static_assert(N % kBlockSize == 0);
+    auto get = [this](int block, int i) {
+      return data_[(pos_ + block * kBlockSize + i) % N];
+    };
+    for (int block = 0; block < N/kBlockSize; ++block) {
+      for (int i = 0; i < kBlockSize; ++i) {
+        char c = get(block, i);
+        fprintf(stderr, "%c  ", isprint(c) ? c : ' ');
+      }
+      fprintf(stderr, "\n");
+      for (int i = 0; i < kBlockSize; ++i) {
+        char c = get(block, i);
+        fprintf(stderr, "%02x ", c);
+      }
+      fprintf(stderr, "\n");
     }
   }
 
@@ -103,9 +221,9 @@ struct Keypress {
   const char* text;
 };
 
-class Shell {
+class Shell : public DebugActions {
  public:
-   Shell(int tty) : tty_(tty), parser_(EscapeParser::DebugActions()) {
+   Shell(int tty) : tty_(tty), parser_(this), grid_(80, 25) {
      int tty_flags = fcntl(tty_, F_GETFL);
      PCHECK(tty_flags >= 0);
      PCHECK(fcntl(tty_, F_SETFL, tty_flags | O_NONBLOCK) >= 0);
@@ -130,11 +248,22 @@ class Shell {
        if (parser_.Consume(c)) continue;
        if (isprint(c)) {
          fputc(c, stderr);
+         grid_.Put(c);
        } else {
          fprintf(stderr, "[%02x]", c);
        }
      }
    }
+
+  void Update() {
+    fprintf(stderr, "=====\n");
+    grid_.Dump();
+    fprintf(stderr, "-----\nRead:\n");
+    read_history_.Dump();
+    fprintf(stderr, "Write:\n");
+    write_history_.Dump();
+    fprintf(stderr, "=====\n");
+  }
 
    bool NeedsWrite() { return write_queue_.HasBlock(); }
    void Write() {
@@ -165,13 +294,24 @@ class Shell {
      }
    }
 
+  void Control(u8 command) override {
+    DebugActions::Control(command);
+    switch(command) {
+      case '\r':
+        return grid_.CarriageReturn();
+      case '\n':
+        return grid_.LineFeed();
+    }
+  }
+
  private:
+  Grid grid_;
   EscapeParser parser_;
   int tty_;
   WriteQueue<1024> write_queue_;
   std::array<u8, 1024> read_buf_;
-  History<256> read_history_;
-  History<256> write_history_;
+  History<192> read_history_;
+  History<192> write_history_;
 };
 
 class TermWindow {
@@ -251,5 +391,6 @@ int main(int argc, char** argv) {
       XNextEvent(display, &event);
       if (auto keypress = window.DecodeKeypress(&event)) shell.Key(*keypress);
     }
+    shell.Update();
   }
 }
