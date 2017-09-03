@@ -37,7 +37,19 @@ static void HandleSIGCHLD(int) {
 }
 
 struct Cell {
+  constexpr static u8 kDefaultFg = 7;
+  constexpr static u8 kDefaultBg = 0;
+  enum {
+    kBold = 1 << 0,
+    kItalic = 1 << 1,
+    kUnderline = 1 << 2,
+    kInverse = 1 << 3,
+  };
+
   u32 rune;
+  u8 fg = kDefaultFg;
+  u8 bg = kDefaultBg;
+  u8 attr = 0;
 };
 class Grid {
  public:
@@ -87,14 +99,15 @@ class Grid {
   void Dump() {
     for (const auto& row : cells_) {
       for (const auto& cell : row) {
+        fprintf(stderr, "%c[38;5;%dm%c[48;5;%dm", 0x1b, cell.fg, 0x1b, cell.bg);
         fputc(isprint(cell.rune) ? cell.rune : ' ', stderr);
+        fprintf(stderr, "%c[0m", 0x1b);
       }
       fputc('\n', stderr);
     }
   }
 
-  void Put(u8 c) {
-    fprintf(stderr, "Put(%02x)\n", c);
+  void Put(Cell value) {
     // TODO: wide characters
     if (x_ == w_) {
       // TODO record soft-wrap
@@ -103,7 +116,7 @@ class Grid {
     }
     auto& row = cells_[y_];
     if (x_ == row.size()) row.emplace_back();
-    row[x_++].rune = c;
+    row[x_++] = value;
   }
 
   void CarriageReturn() {
@@ -115,9 +128,9 @@ class Grid {
     FixWidth();
   }
 
-  void Tab() {
+  void Tab(const Cell& fill) {
     // TODO: mark filled cells as tab/dummies so copy works?
-    do Put(' '); while(!IsTab(x_));
+    do Put(fill); while(!IsTab(x_));
   }
 
   int x() const { return x_; }
@@ -177,7 +190,7 @@ class Shell : public DebugActions {
        if (parser_.Consume(c)) continue;
        if (isprint(c)) {
          fputc(c, stderr);
-         grid_.Put(c);
+         grid_.Put(Format(c));
        } else {
          fprintf(stderr, "[%02x]", c);
        }
@@ -230,12 +243,104 @@ class Shell : public DebugActions {
       case '\n':
         return grid_.LineFeed();
       case '\t':
-        return grid_.Tab();
+        return grid_.Tab(Format(' '));
     }
     DebugActions::Control(command);
   }
 
+  void CSI(const std::string& command, const std::vector<int>& args) override {
+    if (LIKELY(command.size() == 1)) switch (command[0]) {
+    case 'm':
+      if (args.size() == 3 && args[0] == 38 && args[1] == 5) {
+        format_.fg = (args[2] < 0 || args[2] >= 256) ? Cell::kDefaultFg : args[2];
+        return;
+      }
+      if (args.size() == 3 && args[0] == 48 && args[1] == 5) {
+        format_.bg = (args[2] < 0 || args[2] >= 256) ? Cell::kDefaultBg : args[2];
+        return;
+      }
+      for (int a : args) {
+        auto& attr = format_.attr;
+        auto& fg = format_.fg;
+        auto& bg = format_.bg;
+        switch (a) {
+        case 0:
+          format_ = Cell();
+          continue;
+        case 1:
+          attr |= Cell::kBold;
+          continue;
+        case 2: // faint
+          attr &= ~Cell::kBold;
+          continue;
+        case 3:
+          attr |= Cell::kItalic;
+          continue;
+        case 4:
+          attr |= Cell::kUnderline;
+          continue;
+        case 7:
+          attr |= Cell::kInverse;
+          continue;
+        case 21: // double-underline
+          attr |= Cell::kUnderline;
+          continue;
+        case 22:
+          attr &= ~Cell::kBold;
+          continue;
+        case 23:
+          attr &= ~Cell::kItalic;
+          continue;
+        case 24:
+          attr &= ~Cell::kUnderline;
+          continue;
+        case 27:
+          attr &= ~Cell::kInverse;
+          continue;
+        case 5: // blink
+        case 8: // hidden
+        case 9: // strikethrough
+        case 25: // no blink
+        case 28: // no hidden
+        case 29: // no strikethrough
+          continue; // unsupported
+        case 39:
+          fg = Cell::kDefaultFg;
+          continue;
+        case 49:
+          bg = Cell::kDefaultBg;
+          continue;
+        }
+        if (a >= 30 && a < 38) {
+          fg = a - 30;
+          continue;
+        }
+        if (a >= 40 && a < 48) {
+          bg = a - 40;
+          continue;
+        }
+        if (a >= 90 && a < 98) {
+          fg = 8 + a - 90;
+          continue;
+        }
+        if (a >= 100 && a < 108) {
+          bg = 8 + a - 100;
+          continue;
+        }
+      }
+      return;
+    }
+    DebugActions::CSI(command, args);
+  }
+
  private:
+  Cell Format(u32 rune) {
+    Cell result = format_;
+    result.rune = rune;
+    return result;
+  }
+
+  Cell format_;
   Grid grid_;
   EscapeParser parser_;
   int tty_;
