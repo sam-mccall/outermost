@@ -99,7 +99,14 @@ class Grid {
   void Dump() {
     for (const auto& row : cells_) {
       for (const auto& cell : row) {
-        fprintf(stderr, "%c[38;5;%dm%c[48;5;%dm", 0x1b, cell.fg, 0x1b, cell.bg);
+        bool inverse = cell.attr & Cell::kInverse;
+        fprintf(stderr, "%c[38;5;%dm%c[48;5;%dm",
+            0x1b, inverse ? cell.bg : cell.fg,
+            0x1b, inverse ? cell.fg : cell.bg);
+        if (cell.attr & Cell::kBold) fprintf(stderr, "%c[1m", 0x1b);
+        if (cell.attr & Cell::kItalic) fprintf(stderr, "%c[3m", 0x1b);
+        if (cell.attr & Cell::kUnderline) fprintf(stderr, "%c[4m", 0x1b);
+        if (cell.attr & Cell::kItalic) fprintf(stderr, "%c[3m", 0x1b);
         fputc(isprint(cell.rune) ? cell.rune : ' ', stderr);
         fprintf(stderr, "%c[0m", 0x1b);
       }
