@@ -110,10 +110,14 @@ void EscapeParser::Handle(u32 rune) {
 
 bool EscapeParser::ParamParse(u8 c) {
   if (c == ';') {
-    args_.push_back(0);
+    arg_in_progress_ = false;
     return true;
   }
   if (c >= '0' && c <= '9') {
+    if (!arg_in_progress_) {
+      args_.push_back(0);
+      arg_in_progress_ = true;
+    }
     args_.back() *= 10;
     args_.back() += c - '0';
     return true;

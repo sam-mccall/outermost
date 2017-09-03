@@ -47,7 +47,7 @@ class EscapeParser {
     command_.clear();
     payload_.clear();
     args_.clear();
-    args_.push_back(0);
+    arg_in_progress_ = false;
   }
 
   struct Ignore { void operator()() const {} };
@@ -70,6 +70,7 @@ class EscapeParser {
   std::string command_;
   std::string payload_;
   std::vector<int> args_;
+  bool arg_in_progress_ = false;
 };
 
 class DebugActions : public EscapeParser::Actions {
@@ -96,9 +97,9 @@ class DebugActions : public EscapeParser::Actions {
   }
  private:
   static std::string Join(const std::vector<int>& args) {
-    std::string result;
+    std::string result = "[";
     for (int i = 0; i < args.size(); ++i) {
-      result.push_back(i ? ',' : '[');
+      if (i) result.push_back(',');
       result.append(std::to_string(args[i]));
     }
     result.push_back(']');
