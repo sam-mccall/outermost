@@ -115,6 +115,11 @@ class Grid {
     FixWidth();
   }
 
+  void Tab() {
+    // TODO: mark filled cells as tab/dummies so copy works?
+    do Put(' '); while(!IsTab(x_));
+  }
+
   int x() const { return x_; }
   int y() const { return y_; }
   void Move(int x, int y) {
@@ -127,6 +132,11 @@ class Grid {
   void FixWidth() {
     auto& row = cells_[y_];
     if (row.size() <= x_) row.resize(std::min(x_ + 1, w_));
+  }
+
+  bool IsTab(int x) {
+    // TODO: customizable tab table.
+    return x % 8 == 0;
   }
 
   std::vector<std::vector<Cell>> cells_;
@@ -214,13 +224,15 @@ class Shell : public DebugActions {
    }
 
   void Control(u8 command) override {
-    DebugActions::Control(command);
     switch(command) {
       case '\r':
         return grid_.CarriageReturn();
       case '\n':
         return grid_.LineFeed();
+      case '\t':
+        return grid_.Tab();
     }
+    DebugActions::Control(command);
   }
 
  private:

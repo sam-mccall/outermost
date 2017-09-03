@@ -75,19 +75,24 @@ class EscapeParser {
 class DebugActions : public EscapeParser::Actions {
  public:
   void Control(u8 control) override {
-    fprintf(stderr, "Control(%02x)", control);
+    fprintf(stdout, "Control(%02x)\n", control);
+    fflush(stdout);
   }
   void Escape(const std::string& command) override {
-    fprintf(stderr, "Esc(%s)", command.c_str());
+    fprintf(stdout, "Esc(%s)\n", command.c_str());
+    fflush(stdout);
   }
   void CSI(const std::string& command, const std::vector<int>& args) override {
-    fprintf(stderr, "CSI(%s, %s)", command.c_str(), Join(args).c_str());
+    fprintf(stdout, "CSI(%s, %s)\n", command.c_str(), Join(args).c_str());
+    fflush(stdout);
   }
   void DSC(const std::string& command, const std::vector<int>& args, const std::string& payload) override {
-    fprintf(stderr, "DSC(%s, %s, %s)", command.c_str(), Join(args).c_str(), payload.c_str());
+    fprintf(stdout, "DSC(%s, %s, %s)\n", command.c_str(), Join(args).c_str(), payload.c_str());
+    fflush(stdout);
   }
   void OSC(const std::string& command) override {
-    fprintf(stderr, "OSC(%s)", command.c_str());
+    fprintf(stdout, "OSC(%s)\n", command.c_str());
+    fflush(stdout);
   }
  private:
   static std::string Join(const std::vector<int>& args) {
