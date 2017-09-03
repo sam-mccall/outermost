@@ -53,9 +53,15 @@ struct Cell {
 };
 class Grid {
  public:
-  Grid(int w, int h) {
-    Resize(w, h);
-    for (auto& row : cells_) row.resize(w);
+  Grid(int w, int h) : w_(w), h_(h), cells_(h) {
+    Reset();
+  }
+
+  void Reset() {
+    for (auto& row : cells_) row.clear();
+    y_ = h_ - 1;
+    x_ = 0;
+    FixWidth();
   }
 
   void Resize(int w, int h) {
@@ -253,6 +259,16 @@ class Shell : public DebugActions {
         return grid_.Tab(Format(' '));
     }
     DebugActions::Control(command);
+  }
+
+  void Escape(const std::string& command) override {
+    if (command.size() == 1) switch (command[0]) {
+    case 'c': // reset
+      format_ = Cell();
+      grid_.Reset();
+      return;
+    }
+    DebugActions::Escape(command);
   }
 
   void CSI(const std::string& command, const std::vector<int>& args) override {
