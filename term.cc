@@ -64,6 +64,16 @@ class Grid {
     FixWidth();
   }
 
+  void ClearLine(int y) {
+    cells_[y].clear();
+  }
+
+  void ClearAroundCursor(bool before) {
+    auto& row = cells_[y_];
+    if (!before) return row.resize(x_);
+    for (int i = 0; i <= x_ && i < row.size(); ++i) row[i] = Cell();
+  }
+
   void Resize(int w, int h) {
     CHECK(w > 0 && h > 0);
     if (int dh = h - h_) {
@@ -103,9 +113,10 @@ class Grid {
   }
 
   void Dump() {
-    for (const auto& row : cells_) {
-      for (const auto& cell : row) {
-        bool inverse = cell.attr & Cell::kInverse;
+    for (int y = 0; y < h_; ++y) {
+      for (int x = 0; x <= w_; ++x) {
+        Cell cell = x < cells_[y].size() ? cells_[y][x] : Cell();
+        bool inverse = cell.attr & Cell::kInverse || (x == x_ && y == y_);
         fprintf(stderr, "%c[38;5;%dm%c[48;5;%dm",
             0x1b, inverse ? cell.bg : cell.fg,
             0x1b, inverse ? cell.fg : cell.bg);
@@ -148,6 +159,8 @@ class Grid {
 
   int x() const { return x_; }
   int y() const { return y_; }
+  int w() const { return w_; }
+  int h() const { return h_; }
   void Move(int x, int y) {
     y_ = y;
     x_ = x;
@@ -157,7 +170,7 @@ class Grid {
  private:
   void FixWidth() {
     auto& row = cells_[y_];
-    if (row.size() <= x_) row.resize(std::min(x_ + 1, w_));
+    if (row.size() < x_) row.resize(std::min(x_ + 1, w_));
   }
 
   bool IsTab(int x) {
@@ -273,6 +286,41 @@ class Shell : public DebugActions {
 
   void CSI(const std::string& command, const std::vector<int>& args) override {
     if (LIKELY(command.size() == 1)) switch (command[0]) {
+    case 'H': { // Move
+      int x = Get(args, 0, 1) - 1, y = Get(args, 1, 1) - 1;
+      x = std::max(0, std::min(x, grid_.w() - 1));
+      y = std::max(0, std::min(y, grid_.h() - 1));
+      grid_.Move(x, y);
+      return;
+    }
+    case 'J': switch (Get(args, 0, 0)) {
+      case 0: // Clear from cursor.
+        grid_.ClearAroundCursor(/*before=*/false);
+        for (int i = grid_.y() + 1; i < grid_.h(); ++i) grid_.ClearLine(i);
+        return;
+      case 1: // Clear to cursor.
+        grid_.ClearAroundCursor(/*before=*/true);
+        for (int i = 0; i < grid_.y(); ++i) grid_.ClearLine(i);
+        return;
+      case 2: { // Clear whole display
+        int x = grid_.x(), y = grid_.y();
+        grid_.Reset();
+        grid_.Move(x, y);
+        return;
+      }
+    }
+    case 'K': switch (Get(args, 0, 0)) {
+      case 0: // Clear from cursor;
+        grid_.ClearAroundCursor(/*before=*/false);
+        return;
+      case 1: // Clear from cursor;
+        grid_.ClearAroundCursor(/*before=*/true);
+        return;
+      case 2: // Clear from cursor;
+        grid_.ClearAroundCursor(false);
+        grid_.ClearAroundCursor(true);
+        return;
+      }
     case 'm':
       if (args.size() == 3 && args[0] == 38 && args[1] == 5) {
         format_.fg = (args[2] < 0 || args[2] >= 256) ? Cell::kDefaultFg : args[2];
@@ -361,6 +409,10 @@ class Shell : public DebugActions {
     Cell result = format_;
     result.rune = rune;
     return result;
+  }
+
+  int Get(const std::vector<int>& args, int index, int def) {
+    return index >= args.size() ? def : args[index];
   }
 
   Cell format_;
