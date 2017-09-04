@@ -153,7 +153,6 @@ class Grid {
     } else {
       x_--;
     }
-    //cells_[y_][x_] = value;
   }
 
   void CarriageReturn() {
@@ -340,9 +339,18 @@ class Shell : public DebugActions {
         grid_.ClearAroundCursor(true);
         return;
       }
-    case 'C':
-      grid_.Move(std::min(grid_.x() + Get(args, 0, 1), grid_.w()), grid_.y());
-      return;
+    case 'A':
+      return grid_.Move(grid_.x(), std::max(grid_.y() - 1, grid_.h() - 1));
+    case 'B': case 'e':
+      return grid_.Move(grid_.x(), std::max(grid_.y() + 1, grid_.h() - 1));
+    case 'C': case 'n':
+      return grid_.Move(std::min(grid_.x() + Get(args, 0, 1), grid_.w()), grid_.y());
+    case 'D':
+      return grid_.Move(std::max(grid_.x() - Get(args, 0, 1), 0), grid_.y());
+    case 'E':
+      return grid_.Move(0, std::min(grid_.y() + Get(args, 0, 1), grid_.h() - 1));
+    case 'F':
+      return grid_.Move(0, std::max(grid_.y() - Get(args, 0, 1), 0));
     case 'm':
       if (args.size() == 3 && args[0] == 38 && args[1] == 5) {
         format_.fg = (args[2] < 0 || args[2] >= 256) ? Cell::kDefaultFg : args[2];
