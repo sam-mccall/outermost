@@ -148,15 +148,12 @@ class Grid {
     if (x_ == 0) {
       if (y_ == 0) return;
       y_--;
-      auto& row = cells_[y_];
-      if (row.size() == w_) row.pop_back();
-      x_ = row.size();
+      x_ = w_ - 1;
+      FixWidth();
     } else {
-      auto& row = cells_[y_];
-      if (x_ == row.size()) row.pop_back();
       x_--;
     }
-    cells_[y_][x_] = value;
+    //cells_[y_][x_] = value;
   }
 
   void CarriageReturn() {
@@ -343,6 +340,9 @@ class Shell : public DebugActions {
         grid_.ClearAroundCursor(true);
         return;
       }
+    case 'C':
+      grid_.Move(std::min(grid_.x() + Get(args, 0, 1), grid_.w()), grid_.y());
+      return;
     case 'm':
       if (args.size() == 3 && args[0] == 38 && args[1] == 5) {
         format_.fg = (args[2] < 0 || args[2] >= 256) ? Cell::kDefaultFg : args[2];
