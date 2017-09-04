@@ -143,6 +143,22 @@ class Grid {
     row[x_++] = value;
   }
 
+  void PutBackwards(Cell value) {
+    // TODO: wide characters
+    if (x_ == 0) {
+      if (y_ == 0) return;
+      y_--;
+      auto& row = cells_[y_];
+      if (row.size() == w_) row.pop_back();
+      x_ = row.size();
+    } else {
+      auto& row = cells_[y_];
+      if (x_ == row.size()) row.pop_back();
+      x_--;
+    }
+    cells_[y_][x_] = value;
+  }
+
   void CarriageReturn() {
     x_ = 0;
   }
@@ -270,6 +286,12 @@ class Shell : public DebugActions {
         return grid_.LineFeed();
       case '\t':
         return grid_.Tab(Format(' '));
+      case 0x07:
+        printf("Bell!\n");
+        return;
+      case 0x08:
+        grid_.PutBackwards(Format(' '));
+        return;
     }
     DebugActions::Control(command);
   }
